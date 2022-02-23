@@ -54,7 +54,7 @@
 
 #define BUT2_PIO PIOC
 #define BUT2_PIO_ID ID_PIOC
-#define BUT2_PIO_IDX 30
+#define BUT2_PIO_IDX 31
 #define BUT2_PIO_IDX_MASK (1 << BUT2_PIO_IDX)
 
 #define BUT3_PIO PIOA
