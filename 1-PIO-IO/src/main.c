@@ -23,10 +23,17 @@
 /* defines                                                              */
 /************************************************************************/
 
-#define LED_PIO           
-#define LED_PIO_ID        
-#define LED_PIO_IDX       
-#define LED_PIO_IDX_MASK  
+#define LED_PIO PIOC           
+#define LED_PIO_ID ID_PIOC    
+#define LED_PIO_IDX 8       
+#define LED_PIO_IDX_MASK (1 << LED_PIO_IDX)  
+
+// Configuracoes do botao
+#define BUT_PIO PIOA
+#define BUT_PIO_ID ID_PIOA
+#define BUT_PIO_IDX 11
+#define BUT_PIO_IDX_MASK (1u << BUT_PIO_IDX) // esse já está pronto.
+
 
 /************************************************************************/
 /* constants                                                            */
@@ -53,6 +60,26 @@ void init(void);
 // Função de inicialização do uC
 void init(void)
 {
+	// Initialize the board clock
+	sysclk_init();
+
+	// Desativa WatchDog Timer
+	WDT->WDT_MR = WDT_MR_WDDIS;
+	
+	// Ativa o PIO na qual o LED foi conectado
+	// para que possamos controlar o LED.
+	pmc_enable_periph_clk(LED_PIO_ID);
+	
+	// Inicializa PIO do botao
+	pmc_enable_periph_clk(BUT_PIO_ID);
+
+	//Inicializa PC8 como saída
+	pio_set_output(LED_PIO, LED_PIO_IDX_MASK, 0, 0, 0);
+	
+	pio_set_input(BUT_PIO, BUT_PIO_IDX_MASK, PIO_DEFAULT);
+	
+	pio_pull_up(BUT_PIO, BUT_PIO_IDX_MASK, 1);
+
 
 }
 
@@ -69,7 +96,17 @@ int main(void)
   // aplicacoes embarcadas não devem sair do while(1).
   while (1)
   {
-
+	  if(!pio_get(BUT_PIO, PIO_INPUT, BUT_PIO_IDX_MASK)) {
+		  for (int c = 0; c < 5; c++) {
+			// coloca 0 no pino do LED
+			pio_clear(LED_PIO, LED_PIO_IDX_MASK);
+			delay_ms(200);
+			
+			pio_set(LED_PIO, LED_PIO_IDX_MASK);
+			delay_ms(200);
+	  } else {
+		  pio_set(LED_PIO, LED_PIO_IDX_MASK);
+	  }
   }
   return 0;
 }
