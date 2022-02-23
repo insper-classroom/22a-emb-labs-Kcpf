@@ -26,13 +26,13 @@
 #define LED_PIO PIOC           
 #define LED_PIO_ID ID_PIOC    
 #define LED_PIO_IDX 8       
-#define LED_PIO_IDX_MASK (1 << LED_PIO_IDX)  
+#define LED_PIO_IDX_MASK (1u << LED_PIO_IDX)  
 
 // Configuracoes do botao
 #define BUT_PIO PIOA
 #define BUT_PIO_ID ID_PIOA
 #define BUT_PIO_IDX 11
-#define BUT_PIO_IDX_MASK (1u << BUT_PIO_IDX) // esse já está pronto.
+#define BUT_PIO_IDX_MASK (1 << BUT_PIO_IDX) // esse já está pronto.
 
 
 /************************************************************************/
@@ -104,6 +104,7 @@ int main(void)
 			
 			pio_set(LED_PIO, LED_PIO_IDX_MASK);
 			delay_ms(200);
+		  }
 	  } else {
 		  pio_set(LED_PIO, LED_PIO_IDX_MASK);
 	  }
