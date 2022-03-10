@@ -5,9 +5,9 @@
 #include "sysfont.h"
 
 // LED
-#define LED_PIO PIOC
-#define LED_PIO_ID ID_PIOC
-#define LED_IDX 8
+#define LED_PIO PIOA
+#define LED_PIO_ID ID_PIOA
+#define LED_IDX 0
 #define LED_IDX_MASK (1 << LED_IDX)
 
 // Botao
@@ -39,26 +39,57 @@ volatile int but_decrease_flag = 0;
 volatile int change_freq_flag = 0;
 volatile int start_counter = 0;
 
-void pisca_led(int n, int t){
-	for (int i=0;i<n;i++){
-		pio_clear(LED_PIO, LED_IDX_MASK);
+void pisca_led(int t){
+
+	for (int i=0;i<30;i++){
+		pio_clear(LED_PIO, LED_IDX_MASK);											
+
 		delay_ms(t);
 		pio_set(LED_PIO, LED_IDX_MASK);
 		delay_ms(t);
+		
+		if(i == 0) {
+			gfx_mono_draw_string("s", i + 5, 16, &sysfont);
+		}
+		if (i == 5) {
+			gfx_mono_draw_string("a", i + 5, 16, &sysfont);
+		}
+		
+		if (i == 10) {
+			gfx_mono_draw_string("m", i + 5, 16, &sysfont);
+		}
+		
+		if (i == 15) {
+			gfx_mono_draw_string("p", i + 5, 16, &sysfont);
+		}
+		
+		if (i == 20) {
+			gfx_mono_draw_string("a", i + 5, 16, &sysfont);
+		}
+		
+		if (i == 25) {
+			gfx_mono_draw_string("s", i + 5, 16, &sysfont);
+		}
+		
+		if (i == 26) {
+			gfx_mono_draw_string("!", i + 5, 16, &sysfont);
+		}
 	}
+	
+	gfx_mono_draw_string("    ", 0, 16, &sysfont);
 }
 
 void configure_button(Pio *p_pio, const uint32_t ul_mask, uint32_t ul_id, void (*p_handler) (uint32_t, uint32_t), int only_rise) {
 	pmc_enable_periph_clk(ul_id);
 
-	// Configura PIO para lidar com o pino do botão como entrada
+	// Configura PIO para lidar com o pino do botÃ£o como entrada
 	// com pull-up
 	pio_configure(p_pio, PIO_INPUT, ul_mask, PIO_PULLUP | PIO_DEBOUNCE);
 	pio_set_debounce_filter(p_pio, ul_mask, 60);
 
-	// Configura interrupção no pino referente ao botao e associa
-	// função de callback caso uma interrupção for gerada
-	// a função de callback é a: but_callback()
+	// Configura interrupÃ§Ã£o no pino referente ao botao e associa
+	// funÃ§Ã£o de callback caso uma interrupÃ§Ã£o for gerada
+	// a funÃ§Ã£o de callback Ã© a: but_callback()
 	pio_handler_set(p_pio,
 		ul_id,
 		ul_mask,
@@ -66,12 +97,12 @@ void configure_button(Pio *p_pio, const uint32_t ul_mask, uint32_t ul_id, void (
 		p_handler
 	);
 
-	// Ativa interrupção e limpa primeira IRQ gerada na ativacao
+	// Ativa interrupÃ§Ã£o e limpa primeira IRQ gerada na ativacao
 	pio_enable_interrupt(p_pio, ul_mask);
 	pio_get_interrupt_status(p_pio);
 	
 	// Configura NVIC para receber interrupcoes do PIO do botao
-	// com prioridade 4 (quanto mais próximo de 0 maior)
+	// com prioridade 4 (quanto mais prÃ³ximo de 0 maior)
 	NVIC_EnableIRQ(ul_id);
 	NVIC_SetPriority(ul_id, 4); // Prioridade 4
 }
@@ -90,6 +121,7 @@ void but3_callback(void) {
 }
 
 void draw(int x, int y) {
+	gfx_mono_draw_string("           ", 0, 16, &sysfont);
 	sprintf(str, "%d", frequency);
 	gfx_mono_draw_string(str, x, y, &sysfont);
 }
@@ -135,7 +167,7 @@ int main (void) {
 	while(1) {
 		
 		if (but_flag) {
-			 pisca_led(5, frequency);
+			 pisca_led(10000/frequency);
 			 but_flag = 0;
 		}
 		
