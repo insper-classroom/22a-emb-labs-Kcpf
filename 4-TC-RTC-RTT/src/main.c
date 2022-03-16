@@ -17,8 +17,6 @@ typedef struct  {
 volatile char flag_rtc_alarm = 0;
 volatile int button_pressed_flag = 0;
 volatile int change_clock_flag = 0;
-volatile int current_hour, current_min, current_sec;
-volatile int current_year, current_month, current_day, current_week;
 char str[128];
 
 #define LED_PIO PIOC
@@ -53,15 +51,6 @@ void pin_toggle(Pio *pio, uint32_t mask) {
 	pio_set(pio,mask);
 }
 
-void pisca_led(Pio *pio, uint32_t mask, int n, int t){
-	for (int i=0;i<n;i++){
-		pio_clear(pio, mask);
-		delay_ms(t);
-		pio_set(pio, mask);
-		delay_ms(t);
-	}
-}
-
 void LED_init(int estado) {
 	pmc_enable_periph_clk(LED_PIO_ID);
 	pio_set_output(LED_PIO, LED_PIO_IDX_MASK, estado, 0, 0);
@@ -76,7 +65,7 @@ void LED_init(int estado) {
 	pio_set_output(LED3_PIO, LED3_PIO_IDX_MASK, estado, 0, 0);
 };
 
-void button_init(Pio *p_pio, const uint32_t ul_mask, uint32_t ul_id, void (*p_handler) (uint32_t, uint32_t), int only_rise) {
+void button_init(Pio *p_pio, const uint32_t ul_mask, uint32_t ul_id, void (*p_handler) (), int only_rise) {
 	pmc_enable_periph_clk(ul_id);
 
 	// Configura PIO para lidar com o pino do botão como entrada
@@ -202,7 +191,7 @@ void TC6_Handler(void) {
 	volatile uint32_t status = tc_get_status(TC2, 0);
 
 	/** Muda o estado do LED (pisca) **/
-	pin_toggle(LED_PIO, LED_PIO_IDX_MASK);  
+	pin_toggle(LED3_PIO, LED3_PIO_IDX_MASK);  
 }
 
 void RTT_Handler(void) {
@@ -213,29 +202,30 @@ void RTT_Handler(void) {
 
 	/* IRQ due to Alarm */
 	if ((ul_status & RTT_SR_ALMS) == RTT_SR_ALMS) {
-		RTT_init(0.25, 0, RTT_MR_RTTINCIEN);
+		RTT_init(4, 16, RTT_MR_RTTINCIEN);
+		pin_toggle(LED2_PIO, LED2_PIO_IDX_MASK); 
 	}
 	
 	/* IRQ due to Time has changed */
 	if ((ul_status & RTT_SR_RTTINC) == RTT_SR_RTTINC) {
-		pin_toggle(LED2_PIO, LED2_PIO_IDX_MASK);    // BLINK Led
+		   // BLINK Led
 	}
 
 }
 
 void RTC_Handler(void) {
 	uint32_t ul_status = rtc_get_status(RTC);
+		
+	/* Time or date alarm */
+	if ((ul_status & RTC_SR_ALARM) == RTC_SR_ALARM) {
+		// o código para irq de alame vem aqui
+		flag_rtc_alarm = 1;
+	}
 	
 	/* seccond tick */
 	if ((ul_status & RTC_SR_SEC) == RTC_SR_SEC) {
 		// o código para irq de segundo vem aqui
 		change_clock_flag = 1;
-	}
-	
-	/* Time or date alarm */
-	if ((ul_status & RTC_SR_ALARM) == RTC_SR_ALARM) {
-		// o código para irq de alame vem aqui
-		flag_rtc_alarm = 1;
 	}
 
 	rtc_clear_status(RTC, RTC_SCCR_SECCLR);
@@ -250,23 +240,18 @@ void but1_callback(void) {
 	button_pressed_flag = 1;
 }
 
-void get_date() {
-	rtc_get_date(RTC, &current_year, &current_month, &current_day, &current_week);
-}
-
-void get_time() {
-	rtc_get_time(RTC, &current_hour, &current_min, &current_sec);	
-}
 
 void set_alarm(uint months, uint days, uint hours, uint minutes, uint seconds) {
 	
-	/* Leitura do valor atual do RTC */
-	rtc_get_date(RTC, &current_year, &current_month, &current_day, &current_week);
-	rtc_get_time(RTC, &current_hour, &current_min, &current_sec);	
-		
-	/* configura alarme do RTC para daqui 20 segundos */
-	rtc_set_date_alarm(RTC, 1, current_month + months, 1, current_day + days);
-	rtc_set_time_alarm(RTC, 1, current_hour + hours, 1, current_min + minutes, 1, current_sec + seconds);
+    /* Leitura do valor atual do RTC */
+    uint32_t current_hour, current_min, current_sec;
+    uint32_t current_year, current_month, current_day, current_week;
+    rtc_get_time(RTC, &current_hour, &current_min, &current_sec);
+    rtc_get_date(RTC, &current_year, &current_month, &current_day, &current_week);
+    
+    /* configura alarme do RTC para daqui 20 segundos */
+    rtc_set_date_alarm(RTC, 1, current_month + months, 1, current_day + days);
+    rtc_set_time_alarm(RTC, 1, current_hour + hours, 1, current_min + minutes, 1, current_sec + seconds);
 }
 
 
@@ -286,20 +271,21 @@ int main (void)
 	TC_init(TC1, ID_TC3, 0, 5);
 	tc_start(TC1, 0);
 	
-	TC_init(TC2, ID_TC6, 0, 1);
-	tc_start(TC2, 0);
+	TC_init(TC2, ID_TC6, 0, 4);
 	
 	/* 
 	* Ativa RTT para trabalhar por alarme
 	* gerando uma interrupção em 4 s:
 	* aguarda 4 segundos
-	* tempo[s] = 0.25 * 16 = 4s (0.25Hz)
+	* tempo[s] = 4 * 16 = 4s (0.25Hz)
 	*/
-	RTT_init(0.25, 16, RTT_MR_ALMIEN);
+	RTT_init(4, 16, RTT_MR_ALMIEN);
 	
 	calendar rtc_initial = {2022, 3, 12, 12, 18, 57 ,0};
 	RTC_init(RTC, ID_RTC, rtc_initial, RTC_IER_ALREN | RTC_IER_SECEN);
 	
+	uint32_t current_hour, current_min, current_sec;
+	uint32_t current_year, current_month, current_day, current_week;
 	
 
   /* Insert application code here, after the board has been initialized. */
@@ -307,15 +293,15 @@ int main (void)
 		pmc_sleep(SAM_PM_SMODE_SLEEP_WFI);
 		
 		if(flag_rtc_alarm) {
-			pisca_led(LED3_PIO, LED3_PIO_IDX_MASK, 5, 200);
+			tc_start(TC2, 0);
 			flag_rtc_alarm = 0;
 		}
 		
 		if (change_clock_flag) {
-			get_time();
-			gfx_mono_draw_string("                 ", 0, 16, &sysfont);
+			rtc_get_time(RTC, &current_hour, &current_min, &current_sec);
+			gfx_mono_draw_string("           ", 0, 0, &sysfont);
 			sprintf(str, "%d:%d:%d", current_hour, current_min, current_sec);
-			gfx_mono_draw_string(str, 50,16, &sysfont);
+			gfx_mono_draw_string(str, 0,0, &sysfont);
 			change_clock_flag = 0;
 		}
 		
