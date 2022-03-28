@@ -14,10 +14,10 @@ typedef struct  {
 	uint32_t second;
 } calendar;
 
-volatile int counter_tc = 0;
+volatile uint32_t counter_rtt = 0;
 volatile char start = 1;
 volatile char stop = 0;
-volatile char oled_flag = 0;
+volatile char error_flag = 0;
 char str[128];
 
 #define TRIGGER_PIO PIOA
@@ -30,44 +30,58 @@ char str[128];
 #define ECHO_PIO_IDX 30
 #define ECHO_PIO_IDX_MASK (1u << ECHO_PIO_IDX)
 
-void TC_init(Tc * TC, int ID_TC, int TC_CHANNEL, int freq){
-	uint32_t ul_div;
-	uint32_t ul_tcclks;
-	uint32_t ul_sysclk = sysclk_get_cpu_hz();
+void RTT_init(float freqPrescale, uint32_t IrqNPulses, uint32_t rttIRQSource) {
 
-	/* Configura o PMC */
-	pmc_enable_periph_clk(ID_TC);
+	uint16_t pllPreScale = (int) (((float) 32768) / freqPrescale);
+	
+	rtt_sel_source(RTT, false);
+	rtt_init(RTT, pllPreScale);
+	
+	if (rttIRQSource & RTT_MR_ALMIEN) {
+		uint32_t ul_previous_time;
+		ul_previous_time = rtt_read_timer_value(RTT);
+		while (ul_previous_time == rtt_read_timer_value(RTT));
+		rtt_write_alarm_time(RTT, IrqNPulses+ul_previous_time);
+	}
 
-	/** Configura o TC para operar em  freq hz e interrupçcão no RC compare */
-	tc_find_mck_divisor(freq, ul_sysclk, &ul_div, &ul_tcclks, ul_sysclk);
-	tc_init(TC, TC_CHANNEL, ul_tcclks | TC_CMR_CPCTRG);
-	tc_write_rc(TC, TC_CHANNEL, (ul_sysclk / ul_div) / freq);
+	/* config NVIC */
+	NVIC_DisableIRQ(RTT_IRQn);
+	NVIC_ClearPendingIRQ(RTT_IRQn);
+	NVIC_SetPriority(RTT_IRQn, 4);
+	NVIC_EnableIRQ(RTT_IRQn);
 
-	/* Configura NVIC*/
-	NVIC_SetPriority(ID_TC, 4);
-	NVIC_EnableIRQ((IRQn_Type) ID_TC);
-	tc_enable_interrupt(TC, TC_CHANNEL, TC_IER_CPCS);
+	/* Enable RTT interrupt */
+	if (rttIRQSource & (RTT_MR_RTTINCIEN | RTT_MR_ALMIEN))
+	rtt_enable_interrupt(RTT, rttIRQSource);
+	else
+	rtt_disable_interrupt(RTT, RTT_MR_RTTINCIEN | RTT_MR_ALMIEN);
+	
 }
 
-void TC3_Handler(void) {
-	/**
-	* Devemos indicar ao TC que a interrupção foi satisfeita.
-	* Isso é realizado pela leitura do status do periférico
-	**/
-	volatile uint32_t status = tc_get_status(TC1, 0);
+void RTT_Handler(void) {
+	uint32_t ul_status;
 
-	/** Muda o estado do LED (pisca) **/
-	oled_flag = 1; 
+	/* Get RTT status - ACK */
+	ul_status = rtt_get_status(RTT);
+
+	/* IRQ due to Alarm */
+	if ((ul_status & RTT_SR_ALMS) == RTT_SR_ALMS) {
+		error_flag = 1;
+	}
+	
+	/* IRQ due to Time has changed */
+	if ((ul_status & RTT_SR_RTTINC) == RTT_SR_RTTINC) {
+		// BLINK Led
+	}
+
 }
-
 
 void signalCallback(void) {
 	if(pio_get(ECHO_PIO, PIO_INPUT, ECHO_PIO_IDX_MASK)){
-		tc_start(TC0, 0);
+		RTT_init(32000, 753, RTT_MR_ALMIEN);
 	} else {
-		tc_stop(TC0, 0);
-		counter_tc = tc_read_cv(TC0, 0);
-		stop = 1;		
+		counter_rtt = rtt_read_timer_value(RTT);
+		stop = 1;
 	}
 }
 
@@ -92,16 +106,10 @@ int main (void)
 	);
 	
 	pio_enable_interrupt(ECHO_PIO, ECHO_PIO_IDX_MASK);
-
 	NVIC_EnableIRQ(ECHO_PIO_ID);
 	NVIC_SetPriority(ECHO_PIO_ID, 4);
 	
 	gfx_mono_ssd1306_init();
-	
-	TC_init(TC0, ID_TC0, 0, 42);
-	
-	TC_init(TC1, ID_TC3, 0, 4);
-	tc_start(TC1, 0);
 	
 	double distance = 0;
 	double time = 0;
@@ -109,33 +117,35 @@ int main (void)
 
   /* Insert application code here, after the board has been initialized. */
 	while(1) {
-		//pmc_sleep(SAM_PM_SMODE_SLEEP_WFI);
-		
 		if (start) {
-			pio_set(TRIGGER_PIO, TRIGGER_PIO_IDX_MASK);
+ 			pio_set(TRIGGER_PIO, TRIGGER_PIO_IDX_MASK);
 			delay_us(10);
 			pio_clear(TRIGGER_PIO, TRIGGER_PIO_IDX_MASK);
 			
 			start = 0;
 		}
 		
+		pmc_sleep(SAM_PM_SMODE_SLEEP_WFI);
+		
 		if (stop) {
-			time = (double) counter_tc / 32000.0;
+			time = (double) counter_rtt / 32000;
 			distance = time * 170;
+			
+			gfx_mono_draw_string("           ", 0, 0, &sysfont);
+			sprintf(str, "%.2lf cm", distance * 100);
+			gfx_mono_draw_string(str, 0,0, &sysfont);
 			
 			stop = 0;
 			start = 1;
 		}
 		
-		if (oled_flag) {
+		if (error_flag) {
 			gfx_mono_draw_string("           ", 0, 0, &sysfont);
-			sprintf(str, "%lf", distance);
+			sprintf(str, "Mau Contato");
 			gfx_mono_draw_string(str, 0,0, &sysfont);
 			
-			oled_flag = 0;
+			error_flag = 0;
+			start = 1;
 		}
-		
-		
-		
 	}
 }
