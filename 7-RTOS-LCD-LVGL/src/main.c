@@ -17,6 +17,7 @@ LV_FONT_DECLARE(dseg24);
 
 #define LV_HOR_RES_MAX (320)
 #define LV_VER_RES_MAX (240)
+#define CLOCK_SYMBOL "\xEF\x80\x97"
 
 /*A static or global variable to store the buffers*/
 static lv_disp_draw_buf_t disp_buf;
@@ -52,6 +53,9 @@ extern void vApplicationMallocFailedHook(void);
 extern void xPortSysTickHandler(void);
 
 SemaphoreHandle_t xSemaphoreClock;
+SemaphoreHandle_t xSemaphoreSleep;
+
+volatile int set_clock = 0;
 
 extern void vApplicationStackOverflowHook(xTaskHandle *pxTask, signed char *pcTaskName)
 {
@@ -147,6 +151,8 @@ static void power_handler(lv_event_t *e)
 	else if (code == LV_EVENT_VALUE_CHANGED)
 	{
 		LV_LOG_USER("Toggled");
+		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+		xSemaphoreGiveFromISR(xSemaphoreSleep, &xHigherPriorityTaskWoken);
 	}
 }
 
@@ -170,11 +176,7 @@ static void clock_handler(lv_event_t *e)
 
 	if (code == LV_EVENT_CLICKED)
 	{
-		LV_LOG_USER("Clicked");
-	}
-	else if (code == LV_EVENT_VALUE_CHANGED)
-	{
-		LV_LOG_USER("Toggled");
+		set_clock = !set_clock;
 	}
 }
 
@@ -185,9 +187,18 @@ static void increase_handler(lv_event_t *e)
 	int temp;
 	if (code == LV_EVENT_CLICKED)
 	{
-		c = lv_label_get_text(labelSetValue);
-		temp = atoi(c);
-		lv_label_set_text_fmt(labelSetValue, "%02d", temp + 1);
+		if (set_clock == 0)
+		{
+			c = lv_label_get_text(labelSetValue);
+			temp = atoi(c);
+			lv_label_set_text_fmt(labelSetValue, "%02d", temp + 1);
+		}
+		else
+		{
+			uint32_t current_hour, current_min, current_sec;
+			rtc_get_time(RTC, &current_hour, &current_min, &current_sec);
+			rtc_set_time(RTC, current_hour, current_min + 1, current_sec);
+		}
 	}
 }
 
@@ -198,9 +209,18 @@ static void decrease_handler(lv_event_t *e)
 	int temp;
 	if (code == LV_EVENT_CLICKED)
 	{
-		c = lv_label_get_text(labelSetValue);
-		temp = atoi(c);
-		lv_label_set_text_fmt(labelSetValue, "%02d", temp - 1);
+		if (set_clock == 0)
+		{
+			c = lv_label_get_text(labelSetValue);
+			temp = atoi(c);
+			lv_label_set_text_fmt(labelSetValue, "%02d", temp - 1);
+		}
+		else
+		{
+			uint32_t current_hour, current_min, current_sec;
+			rtc_get_time(RTC, &current_hour, &current_min, &current_sec);
+			rtc_set_time(RTC, current_hour, current_min - 1, current_sec);
+		}
 	}
 }
 
@@ -210,6 +230,8 @@ void lv_termostato(void)
 	lv_style_init(&style);
 	lv_style_set_bg_color(&style, lv_color_black());
 	lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_LIGHT_BLUE));
+	lv_style_set_border_color(&style, lv_color_black());
+	lv_style_set_border_width(&style, 5);
 
 	// Power Button ([  Power  )
 	lv_obj_t *btn1 = lv_btn_create(lv_scr_act());
@@ -307,11 +329,22 @@ void lv_termostato(void)
 static void task_lcd(void *pvParameters)
 {
 	int px, py;
+	int is_sleeping = 0;
 
 	lv_termostato();
 
 	for (;;)
 	{
+		if (xSemaphoreTake(xSemaphoreSleep, 1000))
+		{
+			is_sleeping = 1;
+		}
+
+		if (is_sleeping == 1)
+		{
+			lv_obj_clean(lv_scr_act());
+		}
+
 		lv_tick_inc(50);
 		lv_task_handler();
 		vTaskDelay(50);
@@ -329,7 +362,7 @@ static void task_clock(void *pvParameters)
 		if (xSemaphoreTake(xSemaphoreClock, 1000))
 		{
 			rtc_get_time(RTC, &current_hour, &current_min, &current_sec);
-			lv_label_set_text_fmt(labelClock, "%02d:%02d", current_hour, current_min);
+			lv_label_set_text_fmt(labelClock, "%02d:%02d:%02d", current_hour, current_min, current_sec);
 		}
 
 		vTaskDelay(50);
@@ -435,6 +468,7 @@ int main(void)
 	configure_lvgl();
 
 	xSemaphoreClock = xSemaphoreCreateBinary();
+	xSemaphoreSleep = xSemaphoreCreateBinary();
 
 	/* Create task to control oled */
 	xTaskCreate(task_lcd, "LCD", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL);
